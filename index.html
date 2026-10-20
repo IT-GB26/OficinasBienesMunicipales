@@ -69,7 +69,7 @@
     <div class="header-bar">
         <h2>Oficina de Bienes Municipales — Turnos (B)</h2>
         <div class="header-acciones">
-            <button class="btn-notif" id="btnPermisoNotif" type="button" onclick="solicitarPermisoNotificaciones()">🔔 Activar Notificaciones</button>
+            <button class="btn-notif" id="btnPermisoNotif" type="button" onclick="activarAlertasYPermisos()">🔔 Activar Sonido y Notificaciones</button>
             <span id="estadoConexion" class="status-badge">Conectando...</span>
         </div>
     </div>
@@ -92,12 +92,32 @@ const CACHE_CERRADOS_B = "cache_turnos_cerrados_b_v3";
 let turnosCerradosLocales = [];
 let turnosPreviosIds = new Set();
 let primeraCarga = true;
+let audioCtxGlobal = null; // Variable para mantener el canal de audio desbloqueado
 
 const operacionesPendientesB = new Set();
 const operacionesConfirmadasB = new Map();
 function idOperacionB() { return 'b-' + Date.now() + '-' + Math.random().toString(36).slice(2); }
 
-function solicitarPermisoNotificaciones() {
+function activarAlertasYPermisos() {
+    // 1. Desbloquear el sistema de audio del navegador móvil mediante un toque de usuario
+    try {
+        audioCtxGlobal = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtxGlobal.state === 'suspended') {
+            audioCtxGlobal.resume();
+        }
+        // Reproducir un micro-tono silencioso para liberar el bloqueo del sistema
+        const osc = audioCtxGlobal.createOscillator();
+        const gain = audioCtxGlobal.createGain();
+        gain.gain.setValueAtTime(0.001, audioCtxGlobal.currentTime);
+        osc.connect(gain);
+        gain.connect(audioCtxGlobal.destination);
+        osc.start();
+        osc.stop(audioCtxGlobal.currentTime + 0.05);
+    } catch (e) {
+        console.error("Error al desbloquear audio:", e);
+    }
+
+    // 2. Solicitar permisos de notificaciones flotantes
     if (!("Notification" in window)) {
         alert("Este navegador no soporta notificaciones.");
         return;
@@ -106,8 +126,8 @@ function solicitarPermisoNotificaciones() {
         const btn = document.getElementById("btnPermisoNotif");
         if (permission === "granted") {
             btn.style.background = "#16a34a";
-            btn.textContent = "🔔 Notificaciones Activas";
-            new Notification("Bienes Municipales", { body: "Notificaciones flotantes activadas correctamente." });
+            btn.textContent = "🔔 Alertas Activas";
+            new Notification("Bienes Municipales", { body: "El celular ahora te notificará con sonido y alerta flotante." });
         } else {
             btn.style.background = "#dc2626";
             btn.textContent = "🔕 Notificaciones Bloqueadas";
@@ -117,19 +137,26 @@ function solicitarPermisoNotificaciones() {
 
 function reproducirAlertaSonora() {
     try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
+        if (!audioCtxGlobal) {
+            audioCtxGlobal = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtxGlobal.state === 'suspended') {
+            audioCtxGlobal.resume();
+        }
+        const osc = audioCtxGlobal.createOscillator();
+        const gain = audioCtxGlobal.createGain();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
-        osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.15);
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.6);
+        osc.frequency.setValueAtTime(587.33, audioCtxGlobal.currentTime);
+        osc.frequency.setValueAtTime(880, audioCtxGlobal.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.5, audioCtxGlobal.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtxGlobal.currentTime + 0.6);
         osc.connect(gain);
-        gain.connect(audioCtx.destination);
+        gain.connect(audioCtxGlobal.destination);
         osc.start();
-        osc.stop(audioCtx.currentTime + 0.6);
-    } catch (e) {}
+        osc.stop(audioCtxGlobal.currentTime + 0.6);
+    } catch (e) {
+        console.error("Error al reproducir audio:", e);
+    }
 }
 
 function lanzarNotificacionFlotante(titulo, mensaje) {
@@ -322,14 +349,13 @@ async function cargarTurnos() {
                 }
 
                 if (hayClienteNuevo) {
-                    // Detectar si es un dispositivo móvil
                     const esMovil = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
                     
                     if (esMovil) {
-                        // El celular suena y muestra notificación
+                        // Reproduce la alarma sonora en el celular
                         reproducirAlertaSonora();
                     }
-                    // La computadora y el celular muestran la notificación flotante visual
+                    // Muestra la notificación flotante
                     lanzarNotificacionFlotante("¡Nuevo Cliente Adicional!", `Turno #${turnoNuevoID}: ${nombreNuevo}`);
                 }
             } else {
@@ -358,8 +384,9 @@ function cerrarModal() {
 
 if ("Notification" in window && Notification.permission === "granted") {
     const btn = document.getElementById("btnPermisoNotif");
+    btn.style.background = "%#16a34a"; // se corrige abajo
     btn.style.background = "#16a34a";
-    btn.textContent = "🔔 Notificaciones Activas";
+    btn.textContent = "🔔 Alertas Activas";
 }
 
 restaurarCacheLocal();
